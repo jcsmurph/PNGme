@@ -6,50 +6,37 @@ use std::str::FromStr;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChunkType {
-    ancillary: u8,
-    private: u8,
-    reserved: u8,
-    safe_to_copy: u8,
+    bytes: [u8; 4],
 }
 
 impl ChunkType {
     pub fn bytes(&self) -> [u8; 4] {
-        let chunk_type: [u8; 4] = [
-            self.ancillary,
-            self.private,
-            self.reserved,
-            self.safe_to_copy,
-        ];
-        chunk_type
+        self.bytes
     }
 
     pub fn is_valid(&self) -> bool {
-        if self.reserved.is_ascii_uppercase()
-            && self.ancillary.is_ascii()
-            && self.private.is_ascii()
-            && self.safe_to_copy.is_ascii()
-        {
+        if self.bytes[2].is_ascii_uppercase() {
             return true;
         }
         return false;
     }
 
     pub fn is_critical(&self) -> bool {
-        if self.ancillary.is_ascii_uppercase() {
+        if self.bytes[0].is_ascii_uppercase() {
             return true;
         }
         return false;
     }
 
     pub fn is_public(&self) -> bool {
-        if self.private.is_ascii_uppercase() {
+        if self.bytes[1].is_ascii_uppercase() {
             return true;
         }
         return false;
     }
 
     pub fn is_reserved_bit_valid(&self) -> bool {
-        if self.reserved.is_ascii_uppercase() {
+        if self.bytes[2].is_ascii_uppercase() {
             return true;
         }
 
@@ -57,7 +44,7 @@ impl ChunkType {
     }
 
     pub fn is_safe_to_copy(&self) -> bool {
-        if self.safe_to_copy.is_ascii_uppercase() {
+        if self.bytes[3].is_ascii_uppercase() {
             return false;
         }
         return true;
@@ -76,26 +63,21 @@ impl TryFrom<[u8; 4]> for ChunkType {
     type Error = Error;
 
     fn try_from(bytes: [u8; 4]) -> Result<Self> {
-        if !bytes[2].is_ascii_uppercase() {
-            return Err("Invalid Byte".into());
+        let chunk_type: ChunkType = Self { bytes };
+
+        if !ChunkType::is_valid(&chunk_type) {
+            return Err("Invalid Bytes".into());
         }
 
-        Ok(ChunkType {
-            ancillary: bytes[0],
-            private: bytes[1],
-            reserved: bytes[2],
-            safe_to_copy: bytes[3],
-        })
+        Ok(chunk_type)
     }
 }
 
 impl fmt::Display for ChunkType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{}, {}, {}, {}",
-            self.ancillary, self.private, self.reserved, self.safe_to_copy
-        )
+        let chunk_str = std::str::from_utf8(&self.bytes).map_err(|_| std::fmt::Error)?;
+
+        write!(f, "{}", chunk_str)
     }
 }
 
@@ -105,22 +87,17 @@ impl FromStr for ChunkType {
     fn from_str(s: &str) -> Result<Self> {
         let bytes = s.as_bytes();
 
+        let bytes_convert: [u8; 4] = [bytes[0], bytes[1], bytes[2], bytes[3]];
+
         for byte in bytes.iter() {
             if !byte.is_ascii_alphabetic() {
                 return Err("Invalid Byte".into());
             }
         }
 
-        Ok(ChunkType {
-            ancillary: bytes[0],
-            private: bytes[1],
-            reserved: bytes[2],
-            safe_to_copy: bytes[3],
-        })
+        Ok(ChunkType::try_from(bytes_convert)?)
     }
 }
-
-fn main() {}
 
 #[cfg(test)]
 mod tests {
@@ -206,10 +183,12 @@ mod tests {
         assert!(chunk.is_err());
     }
 
+    // Test converts ChunkType to string
+    // Need to convert Struct to [u8; 4]
     #[test]
     pub fn test_chunk_type_string() {
         let chunk = ChunkType::from_str("RuSt").unwrap();
-        assert_eq!(&chunk.to_string(), "RuSt");
+        assert_eq!(chunk.to_string(), "RuSt");
     }
 
     #[test]

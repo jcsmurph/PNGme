@@ -5,7 +5,6 @@ use std::fmt;
 use std::fmt::Display;
 use std::io::{BufReader, Read};
 
-
 const MAXIMUM_LENGTH: u32 = (1 << 31) - 1;
 
 pub struct Chunk {
