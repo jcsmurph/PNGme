@@ -1,4 +1,5 @@
 use crate::chunk_type::ChunkType;
+use crc:: {Crc, CRC_32_ISO_HDLC};
 use std::convert::{TryFrom, TryInto};
 use std::error::Error;
 use std::fmt;
@@ -8,24 +9,30 @@ use std::io::{BufReader, Read};
 const MAXIMUM_LENGTH: u32 = (1 << 31) - 1;
 
 pub struct Chunk {
-    length: u32,
     chunk_type: ChunkType,
     chunk_data: Vec<u8>,
-    crc: u32,
+}
+
+#[derive(Debug)]
+pub struct ChunkDecodingError {
+    reason: String,
+}
+impl ChunkDecodingError {
+    fn boxed(reason: String) -> Box<Self> {
+        Box::new(Self { reason })
+    }
 }
 
 impl Chunk {
-    pub fn new(&self, chunk_type: ChunkType, chunk_data: Vec<u8>) -> Self {
+    pub fn new(chunk_type: ChunkType, chunk_data: Vec<u8>) -> Self {
         Chunk {
-            length: chunk_data.len() as u32,
             chunk_type,
             chunk_data,
-            crc: self.crc,
         }
     }
 
     pub fn length(&self) -> u32 {
-        self.length
+        self.chunk_data.len() as u32
     }
 
     pub fn chunk_type(&self) -> &ChunkType {
@@ -37,7 +44,17 @@ impl Chunk {
     }
 
     fn crc(&self) -> u32 {
-        self.crc
+        let bytes: Vec<u8> = self
+            .chunk_type
+            .bytes()
+            .iter()
+            .chain(self.chunk_data.iter())
+            .copied()
+            .collect();
+        pub const CRC_PNG: Crc<u32> = Crc::<u32>::new(&CRC_32_ISO_HDLC);
+
+        CRC_PNG.checksum(&bytes)
+
     }
 
     pub fn data_as_string(&self) -> crate::Result<String> {
@@ -53,16 +70,6 @@ impl Chunk {
             .chain(self.crc().to_be_bytes().iter())
             .copied()
             .collect::<Vec<u8>>()
-    }
-}
-
-#[derive(Debug)]
-pub struct ChunkDecodingError {
-    reason: String,
-}
-impl ChunkDecodingError {
-    fn boxed(reason: String) -> Box<Self> {
-        Box::new(Self { reason })
     }
 }
 
@@ -99,12 +106,10 @@ impl TryFrom<&[u8]> for Chunk {
             )));
         }
         reader.read_exact(&mut buffer)?;
-        let provided_crc = u32::from_be_bytes(buffer);
+
         Ok(Chunk {
-            length,
             chunk_type,
             chunk_data,
-            crc: provided_crc,
         })
     }
 }
@@ -197,6 +202,7 @@ mod tests {
     }
 
     #[test]
+    //Failing due to incorrect crc?
     fn test_invalid_chunk_from_bytes() {
         let data_length: u32 = 42;
         let chunk_type = b"RuSt";
