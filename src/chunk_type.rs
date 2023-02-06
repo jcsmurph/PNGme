@@ -15,10 +15,15 @@ impl ChunkType {
     }
 
     pub fn is_valid(&self) -> bool {
-        if self.bytes[2].is_ascii_uppercase() {
-            return true;
+        for byte in self.bytes.iter() {
+            if !byte.is_ascii() {
+                return false;
+            }
+            if !self.bytes[2].is_ascii_uppercase() {
+                return false;
+            }
         }
-        return false;
+        return true;
     }
 
     pub fn is_critical(&self) -> bool {
@@ -39,7 +44,6 @@ impl ChunkType {
         if self.bytes[2].is_ascii_uppercase() {
             return true;
         }
-
         return false;
     }
 
@@ -65,10 +69,6 @@ impl TryFrom<[u8; 4]> for ChunkType {
     fn try_from(bytes: [u8; 4]) -> Result<Self> {
         let chunk_type: ChunkType = Self { bytes };
 
-        if !ChunkType::is_valid(&chunk_type) {
-            return Err("Invalid Bytes".into());
-        }
-
         Ok(chunk_type)
     }
 }
@@ -89,6 +89,7 @@ impl FromStr for ChunkType {
 
         let bytes_convert: [u8; 4] = [bytes[0], bytes[1], bytes[2], bytes[3]];
 
+        // Error causes panic. Need to fix to past test final test case
         for byte in bytes.iter() {
             if !byte.is_ascii_alphabetic() {
                 return Err("Invalid Byte".into());
@@ -183,8 +184,6 @@ mod tests {
         assert!(chunk.is_err());
     }
 
-    // Test converts ChunkType to string
-    // Need to convert Struct to [u8; 4]
     #[test]
     pub fn test_chunk_type_string() {
         let chunk = ChunkType::from_str("RuSt").unwrap();
