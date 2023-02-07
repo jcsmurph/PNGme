@@ -1,60 +1,132 @@
-use std::convert::TryFrom;
-use std::fmt;
-use std::fs;
-use std::io::{BufReader, Read};
-use std::path::Path;
-use std::str::FromStr;
-
 use crate::chunk::Chunk;
 use crate::chunk_type::ChunkType;
-use crate::{Error, Result};
+use std::convert::TryFrom;
+use std::error::Error;
+use std::fmt;
+use std::io::{BufReader, Read};
 
-#[derive(Debug)]
-pub struct Png {}
+pub struct Png {
+    chunks: Vec<Chunk>,
+}
 
 impl Png {
-    pub const STANDARD_HEADER: [u8; 8] = [0, 0, 0, 0, 0, 0, 0, 0];
+    const STANDARD_HEADER: [u8; 8] = *b"\x89PNG\r\n\x1a\n";
+    pub fn from_chunks(chunks: Vec<Chunk>) -> Self {
+        Png { chunks }
+    }
+    pub fn append_chunk(&mut self, chunk: Chunk) {
+        self.chunks.push(chunk);
+    }
 
-    pub fn from_chunks(chunks: Vec<Chunk>) -> Png {
-        todo!()
+       pub fn remove_chunk(&mut self, chunk_type: ChunkType) -> Result<Chunk, ChunkNotFoundError> {
+        if let Some(pos) = self
+            .chunks
+            .iter()
+            .position(|c| c.chunk_type() == &chunk_type)
+        {
+            Ok(self.chunks.remove(pos))
+        } else {
+            Err(ChunkNotFoundError {
+                chunk_type: chunk_type.to_string(),
+            })
+        }
     }
-    pub fn append_chunks(&mut self, chunk: Chunk) {
-        todo!()
+
+    #[allow(dead_code)]
+    fn header(&self) -> &[u8; 8] {
+        &Self::STANDARD_HEADER
     }
-    pub fn remove_chunks(&mut self, chunk_type: &str) -> Result<Chunk> {
-        todo!()
-    }
-    pub fn header(&self) -> &[u8; 8] {
-        todo!()
-    }
+
     pub fn chunks(&self) -> &[Chunk] {
-        todo!()
+        self.chunks.as_slice()
     }
-    pub fn chunks_by_type(&self, chunk_type: &str) -> Option<&Chunk> {
-        todo!()
+
+
+    pub fn chunk_by_type(&self, chunk_type: ChunkType) -> Option<&Chunk> {
+        self.chunks.iter().find(|c| c.chunk_type() == &chunk_type)
     }
+
     pub fn as_bytes(&self) -> Vec<u8> {
-        todo!()
-    }
-    pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
-        todo!()
-    }
-}
-
-impl TryFrom<&[u8]> for Png {
-    type Error = crate::Error;
-    fn try_from(bytes: &[u8]) -> Result<Png> {
-        todo!()
+        let chunk_iterators: Vec<u8> = self.chunks.iter().map(|c| c.as_bytes()).flatten().collect();
+        self.header()
+            .iter()
+            .chain(chunk_iterators.iter())
+            .copied()
+            .collect()
     }
 }
-
 impl fmt::Display for Png {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        todo!()
+        for chunk in &self.chunks {
+            write!(f, "{}", chunk)?;
+        }
+        Ok(())
+    }
+}
+impl TryFrom<&[u8]> for Png {
+    type Error = crate::Error;
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+        let mut reader = BufReader::new(bytes);
+        let mut header = [0u8; 8];
+        reader.read_exact(&mut header)?;
+        if header != Png::STANDARD_HEADER {
+            return Err(PngDecodeError::boxed(format!(
+                "Bad header (received {:?}, expected {:?})",
+                header,
+                Png::STANDARD_HEADER
+            )));
+        }
+
+        let mut chunks = Vec::new();
+        let mut length_buffer = [0u8; 4];
+        while let Ok(()) = reader.read_exact(&mut length_buffer) {
+
+            let final_position = 4 + u32::from_be_bytes(length_buffer) + 4;
+            let mut buffer = vec![0; usize::try_from(final_position)?];
+            reader.read_exact(&mut buffer)?;
+            let all_bytes: Vec<u8> = length_buffer
+                .iter()
+                .copied()
+                .chain(buffer.into_iter())
+                .collect();
+            let chunk = Chunk::try_from(all_bytes.as_slice())?;
+            chunks.push(chunk);
+        }
+        Ok(Png::from_chunks(chunks))
     }
 }
 
-#[allow(unused_variables)]
+#[derive(Debug)]
+pub struct PngDecodeError {
+    reason: String,
+}
+impl PngDecodeError {
+    fn boxed(reason: String) -> Box<Self> {
+        Box::new(Self { reason })
+    }
+}
+
+impl fmt::Display for PngDecodeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Bad PNG: {}", self.reason)
+    }
+}
+
+impl Error for PngDecodeError {}
+
+#[derive(Debug)]
+pub struct ChunkNotFoundError {
+    chunk_type: String,
+}
+
+impl Error for ChunkNotFoundError {}
+
+impl fmt::Display for ChunkNotFoundError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Chunk not found with type {}", self.chunk_type)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -78,9 +150,7 @@ mod tests {
         Png::from_chunks(chunks)
     }
 
-    fn chunk_from_strings(chunk_type: &str, data: &str) -> Result<Chunk> {
-        use std::str::FromStr;
-
+    fn chunk_from_strings(chunk_type: &str, data: &str) -> crate::Result<Chunk> {
         let chunk_type = ChunkType::from_str(chunk_type)?;
         let data: Vec<u8> = data.bytes().collect();
 
@@ -163,7 +233,9 @@ mod tests {
     #[test]
     fn test_chunk_by_type() {
         let png = testing_png();
-        let chunk = png.chunk_by_type("FrSt").unwrap();
+        let chunk = png
+            .chunk_by_type(ChunkType::from_str(&"FrSt").unwrap())
+            .unwrap();
         assert_eq!(&chunk.chunk_type().to_string(), "FrSt");
         assert_eq!(&chunk.data_as_string().unwrap(), "I am the first chunk");
     }
@@ -172,7 +244,9 @@ mod tests {
     fn test_append_chunk() {
         let mut png = testing_png();
         png.append_chunk(chunk_from_strings("TeSt", "Message").unwrap());
-        let chunk = png.chunk_by_type("TeSt").unwrap();
+        let chunk = png
+            .chunk_by_type(ChunkType::from_str(&"TeSt").unwrap())
+            .unwrap();
         assert_eq!(&chunk.chunk_type().to_string(), "TeSt");
         assert_eq!(&chunk.data_as_string().unwrap(), "Message");
     }
@@ -181,8 +255,9 @@ mod tests {
     fn test_remove_chunk() {
         let mut png = testing_png();
         png.append_chunk(chunk_from_strings("TeSt", "Message").unwrap());
-        png.remove_chunk("TeSt").unwrap();
-        let chunk = png.chunk_by_type("TeSt");
+        png.remove_chunk(ChunkType::from_str("TeSt").unwrap())
+            .unwrap();
+        let chunk = png.chunk_by_type(ChunkType::from_str(&"TeSt").unwrap());
         assert!(chunk.is_none());
     }
 

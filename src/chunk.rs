@@ -1,5 +1,5 @@
 use crate::chunk_type::ChunkType;
-use crc:: {Crc, CRC_32_ISO_HDLC};
+use crc::{Crc, CRC_32_ISO_HDLC};
 use std::convert::{TryFrom, TryInto};
 use std::error::Error;
 use std::fmt;
@@ -54,7 +54,6 @@ impl Chunk {
         pub const CRC_PNG: Crc<u32> = Crc::<u32>::new(&CRC_32_ISO_HDLC);
 
         CRC_PNG.checksum(&bytes)
-
     }
 
     pub fn data_as_string(&self) -> crate::Result<String> {
